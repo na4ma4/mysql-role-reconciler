@@ -1,0 +1,28 @@
+---
+hyperion:
+  host: "hyperion.example.com"
+  port: 3306
+  user: "reconciler"
+  password: "password"
+  ssl:
+    ca: "/path/to/ca.pem"
+    cert: "/path/to/cert.pem"
+    key: "/path/to/key.pem"
+  iam_auth: false
+hyperion-sham:
+  host: "hyperion-sham.example.com"
+  port: 3306
+  user: "reconciler"
+  aws_region: "us-east-1"
+  iam_auth: true
+titan:
+  aws_region: "us-east-1"
+  aws_id: "titan"
+  user: "reconciler"
+  iam_auth: true
+otherserver:
+  host: "otherserver.example.com"
+  port: 3306
+  user: "reconciler"
+  password: "password"
+  enabled: false
