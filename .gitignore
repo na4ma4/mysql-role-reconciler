@@ -1,0 +1,6 @@
+/artifacts
+/.makefiles
+/dist
+*.plan
+.mysql-reconciler-history
+.mysql-reconciler-state.json

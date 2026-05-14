@@ -1,0 +1,41 @@
+name: Unit Tests
+
+on:
+  pull_request:
+  pull_request_review:
+    types:
+      - submitted
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+env:
+  PLATFORMS: linux/arm64,linux/amd64,darwin/arm64
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+        id: go
+
+      - name: Set up go env
+        run: |
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+
+      - name: Run Mage
+        uses: magefile/mage-action@v3
+        with:
+          version: latest

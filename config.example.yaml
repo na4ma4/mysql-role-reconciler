@@ -1,0 +1,65 @@
+---
+programs_file: "programs.example.yaml"
+
+servers_file: "servers.example.yaml"
+
+state:
+  storage: local  # "local" (default) or "s3"
+  dir: "."        # base directory for local storage (default: current directory)
+  # s3:            # S3 configuration (used when storage=s3)
+  #   bucket: "my-state-bucket"
+  #   prefix: "mysql-reconciler/"
+  #   region: "us-east-1"
+
+programs:
+  - name: "programname"
+    sup_db:
+      - "programname2"
+
+permission_sets:
+  usage:
+    - USAGE
+  select:
+    - SELECT
+  dml:
+    - INSERT
+    - UPDATE
+    - DELETE
+  create_temp:
+    - CREATE TEMPORARY TABLES
+  ddl:
+    - CREATE
+    - ALTER
+    - DROP
+  all:
+    - ALL PRIVILEGES
+  process:
+    - PROCESS
+
+roles:
+  - name: "{{name}}-adm"
+    server:
+      '*': [ "process" ]
+    app_db:
+      '*': [ "select", "create_temp", "dml" ]
+    sup_db:
+      '*': [ "select", "create_temp", "dml", "ddl" ]
+
+  - name: "{{name}}-mnt"
+    server:
+      '*': [ "usage" ]
+    app_db:
+      '*': [ "select", "create_temp" ]
+      'table1': [ "select", "dml"]
+      'table2': [ "select", "dml"]
+    sup_db:
+      '*': [ "select", "create_temp" ]
+
+  - name: "{{name}}-ro"
+    server:
+      '*': [ "usage" ]
+    app_db:
+      '*': [ "select", "create_temp" ]
+    sup_db:
+      '*': [ "select", "create_temp" ]
+

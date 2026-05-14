@@ -1,0 +1,9 @@
+---
+- name: "programname"
+  server:
+    prod: "rdsserver1"
+    sham: "rdsserver1-sham"
+  app_db:
+    - "app_programname"
+  sup_db:
+    - "programname"

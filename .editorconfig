@@ -1,0 +1,53 @@
+# Top-most EditorConfig file.
+root = true
+
+## All files should use tabs for indentation, and
+## trailing whitespace should not be trimmed,
+## and files should not automatically end with a newline.
+[*]
+indent_style = tab
+indent_size = 2
+charset = utf-8
+end_of_line = lf
+tab_width = 2
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+## Markdown files should use spaces for indentation,
+## and should always end with a newline, and should
+## not have trailing whitespace.
+[*.{MD,md}]
+indent_style = space
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+## Shell scripts should use spaces for indentation,
+## and should always end with a newline, and
+## should not have trailing whitespace.
+[*.sh]
+indent_style = space
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+## Perl scripts should use tabs for indentation,
+## and should always end with a newline, and
+## should not have trailing whitespace.
+[*.pl]
+indent_style = tab
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+## Nix files should use spaces for indentation,
+## and should not have trailing whitespace.
+[*.nix]
+indent_style = space
+charset = utf-8
+trim_trailing_whitespace = true
+
+## Terraform, JSON, YAML, and HCL files should use
+## spaces for indentation, and should always end
+## with a newline, and should not have trailing whitespace.
+[*.{tf,json,yml,yaml}]
+indent_style = space
+trim_trailing_whitespace = true
+insert_final_newline = true
