@@ -1,0 +1,9 @@
+---
+- name: "programname"
+  server:
+    prod: "hyperion"
+    sham: "hyperion-sham"
+  app_db:
+    - "zban_programname"
+  sup_db:
+    - "programname"

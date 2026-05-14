@@ -1,0 +1,80 @@
+---
+programs_file: "programs.example.yaml"
+
+servers_file: "servers.example.yaml"
+
+state:
+  storage: local  # "local" (default) or "s3"
+  dir: "."        # base directory for local storage (default: current directory)
+  # s3:            # S3 configuration (used when storage=s3)
+  #   bucket: "my-state-bucket"
+  #   prefix: "mysql-reconciler/"
+  #   region: "us-east-1"
+
+programs:
+  - name: "programname"
+    sup_db:
+      - "programname2"
+
+permission_sets:
+  usage:
+    - USAGE
+  select:
+    - SELECT
+  dml:
+    - INSERT
+    - UPDATE
+    - DELETE
+  create_temp:
+    - CREATE TEMPORARY TABLES
+  ddl:
+    - CREATE
+    - ALTER
+    - DROP
+  all:
+    - ALL PRIVILEGES
+  process:
+    - PROCESS
+
+roles:
+  - name: "tp-{{name}}-adm"
+    server:
+      '*': [ "process" ]
+    app_db:
+      '*': [ "select", "create_temp", "dml" ]
+    sup_db:
+      '*': [ "select", "create_temp", "dml", "ddl" ]
+
+  - name: "tp-{{name}}-mnt"
+    server:
+      '*': [ "usage" ]
+    app_db:
+      '*': [ "select", "create_temp" ]
+      'objects': [ "select", "dml"]
+      'operations': [ "select", "dml"]
+      'payment_minimums': [ "select", "dml"]
+      'payment_schema': [ "select", "dml"]
+      'payment_types': [ "select", "dml"]
+      'plan_template_snapshots': [ "select", "dml"]
+      'playermap': [ "select", "dml"]
+      'players': [ "select", "dml"]
+      'subscription_groups': [ "select", "dml"]
+      'subscriptions_current': [ "select", "dml"]
+      'subscriptions_history': [ "select", "dml"]
+      'user_details': [ "select", "dml"]
+      'user_details_schema': [ "select", "dml"]
+      'user_payment_details': [ "select", "dml"]
+      'users': [ "select", "dml"]
+    sup_db:
+      '*': [ "select", "create_temp" ]
+      'dst_%': [ "select", "dml", "ddl" ]
+      'ext_%': [ "select", "dml", "ddl" ]
+
+  - name: "tp-{{name}}-ro"
+    server:
+      '*': [ "usage" ]
+    app_db:
+      '*': [ "select", "create_temp" ]
+    sup_db:
+      '*': [ "select", "create_temp" ]
+
