@@ -1,5 +1,13 @@
 # mysql-role-reconciler
 
+[![Unit Tests](https://github.com/na4ma4/mysql-role-reconciler/actions/workflows/unit-test.yml/badge.svg)](https://github.com/na4ma4/mysql-role-reconciler/actions/workflows/unit-test.yml)
+[![Release](https://github.com/na4ma4/mysql-role-reconciler/actions/workflows/release-please.yml/badge.svg)](https://github.com/na4ma4/mysql-role-reconciler/actions/workflows/release-please.yml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/na4ma4/mysql-role-reconciler)](https://github.com/na4ma4/mysql-role-reconciler/blob/main/go.mod)
+[![Latest Release](https://img.shields.io/github/v/release/na4ma4/mysql-role-reconciler?sort=semver)](https://github.com/na4ma4/mysql-role-reconciler/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/na4ma4/mysql-role-reconciler)](https://goreportcard.com/report/github.com/na4ma4/mysql-role-reconciler)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+
 MySQL Role Reconciler compares a declarative configuration of MySQL roles and permissions against the actual state across multiple servers, generates SQL migration statements, and can apply them while tracking history. Written in Go, targeting MySQL 8.0+ (native roles).
 
 ## Overview
