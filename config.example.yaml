@@ -31,6 +31,8 @@ permission_sets:
     - CREATE
     - ALTER
     - DROP
+  execute_procedure:
+    - EXECUTE
   all:
     - ALL PRIVILEGES
   process:
@@ -39,7 +41,7 @@ permission_sets:
 roles:
   - name: "{{name}}-adm"
     server:
-      '*': [ "process" ]
+      '*': [ "process", "execute_procedure" ]
     app_db:
       '*': [ "select", "create_temp", "dml" ]
     sup_db:
@@ -51,7 +53,13 @@ roles:
     app_db:
       '*': [ "select", "create_temp" ]
       'table1': [ "select", "dml"]
-      'table2': [ "select", "dml"]
+      'table2':
+        type: table
+        privileges: [ "select", "dml"]
+      some_procedures:
+        type: procedure
+        names: [ "custom_precedure1", "custom_procedure2" ]
+        privileges: [ "execute_procedure" ]
     sup_db:
       '*': [ "select", "create_temp" ]
 

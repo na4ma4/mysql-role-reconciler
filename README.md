@@ -137,6 +137,7 @@ permission_sets:
   dml: [INSERT, UPDATE, DELETE]
   create_temp: [CREATE TEMPORARY TABLES]
   ddl: [CREATE, ALTER, DROP]
+  execute_procedure: [EXECUTE]
   all: [ALL PRIVILEGES]
   process: [PROCESS]
 
@@ -253,6 +254,13 @@ app_db:
   '*': ["select", "create_temp"]          # all tables → GRANT ... ON schema.*
   'objects': ["select", "dml"]            # specific table → GRANT ... ON schema.objects
   'src_%': ["select", "dml", "ddl"]       # LIKE pattern → GRANT ... ON schema.src_%
+  'table2':
+    type: table
+    privileges: ["select", "dml"]
+  some_procedures:
+    type: procedure
+    names: ["custom_procedure1", "custom_procedure2"]
+    privileges: ["execute_procedure"]
 ```
 
 Server-scope keys in the `server` field:
@@ -262,6 +270,9 @@ Server-scope keys in the `server` field:
 | `'*'` | `*.*` (server-level) |
 | `'dbname.*'` | `` `dbname`.* `` (all tables in schema) |
 | `'dbname.tablename'` | `` `dbname`.`tablename` `` (specific table) |
+
+Typed `table` entries are equivalent to the shorthand form. Typed `procedure`
+entries generate `GRANT ... ON PROCEDURE schema.name` for each name.
 
 ## Database Pattern Expansion
 

@@ -16,7 +16,8 @@ type Grant struct {
 	Server      string // server this grant applies to
 	Role        string
 	Database    string // schema name; "*" means server-level (*.*)
-	Table       string // table name; "*" means all tables (schema.*); empty for server-level
+	Table       string // table or procedure name; "*" means all tables (schema.*); empty for server-level
+	ObjectType  string // empty/table for table grants, or procedure
 	Grants      []string
 	GrantOption bool
 }
@@ -211,6 +212,16 @@ func ParseGrantString(_ context.Context, _ *sql.DB, srvCfg config.ServerConfig, 
 
 	grantOption := strings.Contains(suffixPart, "WITH GRANT OPTION")
 
+	objectType := ""
+	for _, candidate := range []string{"PROCEDURE", "FUNCTION"} {
+		prefix := candidate + " "
+		if strings.HasPrefix(dbPart, prefix) {
+			objectType = strings.ToLower(candidate)
+			dbPart = strings.TrimPrefix(dbPart, prefix)
+			break
+		}
+	}
+
 	// Parse database and table from target like `mydb`.`table`, `mydb`.*, or *.*
 	database, table := ParseTargetFromGrant(dbPart)
 
@@ -218,11 +229,12 @@ func ParseGrantString(_ context.Context, _ *sql.DB, srvCfg config.ServerConfig, 
 	privs := ParsePrivileges(privStr)
 
 	return &Grant{
-		ID:          strings.Join([]string{srvCfg.ID(), database, table, role}, "."), // e.g., "myserver.mydb.*.myrole"
+		ID:          strings.Join([]string{srvCfg.ID(), objectType, database, table, role}, "."), // e.g., "myserver.mydb.*.myrole"
 		Role:        role,
 		Server:      srvCfg.ID(),
 		Database:    database,
 		Table:       table,
+		ObjectType:  objectType,
 		Grants:      privs,
 		GrantOption: grantOption,
 	}

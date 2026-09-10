@@ -58,6 +58,9 @@ func runSortPlan(cmd *cobra.Command, args []string) error {
 			if sa.Database != sb.Database {
 				return sa.Database < sb.Database
 			}
+			if sa.ObjectType != sb.ObjectType {
+				return sa.ObjectType < sb.ObjectType
+			}
 			return sa.Table < sb.Table
 		})
 
@@ -72,6 +75,9 @@ func runSortPlan(cmd *cobra.Command, args []string) error {
 			}
 			if ga.Database != gb.Database {
 				return ga.Database < gb.Database
+			}
+			if ga.ObjectType != gb.ObjectType {
+				return ga.ObjectType < gb.ObjectType
 			}
 			return ga.Table < gb.Table
 		})
@@ -105,6 +111,7 @@ func grantEntriesToDesired(entries []migrate.GrantEntry) []reconcile.DesiredGran
 			Role:       e.Role,
 			Database:   e.Database,
 			Table:      e.Table,
+			ObjectType: e.ObjectType,
 			Privileges: e.Privileges,
 		}
 	}

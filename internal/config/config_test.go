@@ -175,6 +175,43 @@ roles:
 	}
 }
 
+func TestRoleConfig_TypedObjectGrants(t *testing.T) {
+	t.Parallel()
+
+	var role config.RoleConfig
+	yamlData := `name: myapp-mnt
+server:
+  '*': [usage]
+app_db:
+  '*': [select]
+  table1: [select, dml]
+  table2:
+    type: table
+    privileges: [select, dml]
+  procedures:
+    type: procedure
+    names: [create_user, delete_user]
+    privileges: [execute_procedure]
+`
+	if err := yaml.Unmarshal([]byte(yamlData), &role); err != nil {
+		t.Fatalf("unmarshal role: %v", err)
+	}
+
+	if got := role.AppDB["table2"]; len(got) != 2 || got[0] != "select" || got[1] != "dml" {
+		t.Errorf("expected table2 permissions, got %v", got)
+	}
+	if len(role.AppDBObjects) != 1 {
+		t.Fatalf("expected one procedure object, got %d", len(role.AppDBObjects))
+	}
+	procedure := role.AppDBObjects[0]
+	if procedure.Type != "procedure" {
+		t.Errorf("expected procedure type, got %q", procedure.Type)
+	}
+	if len(procedure.Names) != 2 {
+		t.Errorf("expected two procedure names, got %v", procedure.Names)
+	}
+}
+
 func TestValidate_MissingProgramsFile(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

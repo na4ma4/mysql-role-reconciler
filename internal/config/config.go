@@ -50,10 +50,12 @@ func IsTemplate(name string) bool {
 // Returns the expanded RoleConfig. If the role name is not a template, returns a copy as-is.
 func ExpandRole(role RoleConfig, programName string) RoleConfig {
 	expanded := RoleConfig{
-		Name:   strings.ReplaceAll(role.Name, TemplateVar, programName),
-		Server: role.Server,
-		AppDB:  role.AppDB,
-		SupDB:  role.SupDB,
+		Name:         strings.ReplaceAll(role.Name, TemplateVar, programName),
+		Server:       role.Server,
+		AppDB:        role.AppDB,
+		SupDB:        role.SupDB,
+		AppDBObjects: role.AppDBObjects,
+		SupDBObjects: role.SupDBObjects,
 	}
 	return expanded
 }
@@ -222,10 +224,82 @@ func (c *IgnoreErrorsConfig) MarshalYAML() (any, error) {
 
 // RoleConfig represents a role definition with permission sets per scope.
 type RoleConfig struct {
-	Name   string              `yaml:"name"`
-	Server map[string][]string `yaml:"server"`
-	AppDB  map[string][]string `yaml:"app_db"`
-	SupDB  map[string][]string `yaml:"sup_db"`
+	Name         string              `yaml:"name"`
+	Server       map[string][]string `yaml:"server"`
+	AppDB        map[string][]string `yaml:"app_db"`
+	SupDB        map[string][]string `yaml:"sup_db"`
+	AppDBObjects []RoleObjectConfig  `yaml:"-"`
+	SupDBObjects []RoleObjectConfig  `yaml:"-"`
+}
+
+// RoleObjectConfig describes a typed object grant in app_db or sup_db.
+// Table objects are equivalent to the legacy "table: [permissions]" form.
+type RoleObjectConfig struct {
+	Type       string   `yaml:"type"`
+	Names      []string `yaml:"names"`
+	Privileges []string `yaml:"privileges"`
+}
+
+// UnmarshalYAML accepts both the legacy shorthand and typed object grants.
+func (r *RoleConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	var raw struct {
+		Name   string               `yaml:"name"`
+		Server map[string][]string  `yaml:"server"`
+		AppDB  map[string]yaml.Node `yaml:"app_db"`
+		SupDB  map[string]yaml.Node `yaml:"sup_db"`
+	}
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+
+	r.Name = raw.Name
+	r.Server = raw.Server
+
+	var err error
+	r.AppDB, r.AppDBObjects, err = decodeRoleScope(raw.AppDB, "app_db")
+	if err != nil {
+		return err
+	}
+	r.SupDB, r.SupDBObjects, err = decodeRoleScope(raw.SupDB, "sup_db")
+	return err
+}
+
+func decodeRoleScope(values map[string]yaml.Node, scope string) (map[string][]string, []RoleObjectConfig, error) {
+	permissions := make(map[string][]string)
+	var objects []RoleObjectConfig
+
+	for key, node := range values {
+		var perms []string
+		if err := node.Decode(&perms); err == nil {
+			permissions[key] = perms
+			continue
+		}
+
+		var object RoleObjectConfig
+		if err := node.Decode(&object); err != nil {
+			return nil, nil, fmt.Errorf("%s.%s must be a list of permission sets or an object grant", scope, key)
+		}
+		object.Type = strings.ToLower(object.Type)
+		switch object.Type {
+		case "table":
+			names := object.Names
+			if len(names) == 0 {
+				names = []string{key}
+			}
+			for _, name := range names {
+				permissions[name] = object.Privileges
+			}
+		case "procedure":
+			if len(object.Names) == 0 {
+				return nil, nil, fmt.Errorf("%s.%s procedure grant requires names", scope, key)
+			}
+			objects = append(objects, object)
+		default:
+			return nil, nil, fmt.Errorf("%s.%s has unsupported object type %q", scope, key, object.Type)
+		}
+	}
+
+	return permissions, objects, nil
 }
 
 // ServerConfig represents connection details for a MySQL server.

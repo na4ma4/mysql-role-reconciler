@@ -146,7 +146,7 @@ func showMarkdown(plan *migrate.PlanFile, roles []config.RoleConfig) error {
 				fmt.Fprintln(os.Stdout, "| ------ | -------- | ----- | ---------- |")
 				for _, s := range rg.stmts {
 					db := formatDB(s.Database)
-					tbl := formatTable(s.Table)
+					tbl := formatTarget(s)
 					if s.Type == reconcile.StatementCreateRole || s.Type == reconcile.StatementDropRole {
 						db = ""
 						tbl = ""
@@ -366,6 +366,9 @@ func statementLess(a, b reconcile.MigrationStatement) bool {
 	if a.Table != b.Table {
 		return a.Table < b.Table
 	}
+	if a.ObjectType != b.ObjectType {
+		return a.ObjectType < b.ObjectType
+	}
 
 	return formatPermission(a) < formatPermission(b)
 }
@@ -484,6 +487,14 @@ func formatTable(table string) string {
 		return "`*`"
 	}
 	return "`" + table + "`"
+}
+
+func formatTarget(s reconcile.MigrationStatement) string {
+	target := formatTable(s.Table)
+	if s.ObjectType != "" && s.ObjectType != "table" && target != "" {
+		return strings.ToUpper(s.ObjectType) + " " + target
+	}
+	return target
 }
 
 func formatPermission(s reconcile.MigrationStatement) string {
@@ -696,6 +707,7 @@ func displayServerDrift(
 			Role:       g.Role,
 			Database:   g.Database,
 			Table:      g.Table,
+			ObjectType: g.ObjectType,
 			Privileges: g.Grants,
 		}
 	}
