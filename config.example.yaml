@@ -55,6 +55,7 @@ roles:
       'table1': [ "select", "dml"]
       'table2':
         type: table
+        names: [ "table2", "table3" ]
         privileges: [ "select", "dml"]
       some_procedures:
         type: procedure

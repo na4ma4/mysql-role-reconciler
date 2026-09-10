@@ -212,6 +212,150 @@ app_db:
 	}
 }
 
+func TestRoleConfig_TableNamesExpansion(t *testing.T) {
+	t.Parallel()
+
+	var role config.RoleConfig
+	yamlData := `name: myapp-mnt
+server:
+  '*': [usage]
+app_db:
+  '*': [select, create_temp]
+  table1: [select, dml]
+  table2:
+    type: table
+    names: [table2, table3]
+    privileges: [select, dml]
+`
+	if err := yaml.Unmarshal([]byte(yamlData), &role); err != nil {
+		t.Fatalf("unmarshal role: %v", err)
+	}
+
+	// Both names from the list should receive the privileges.
+	if got := role.AppDB["table2"]; len(got) != 2 || got[0] != "select" || got[1] != "dml" {
+		t.Errorf("expected table2 -> [select dml], got %v", got)
+	}
+	if got := role.AppDB["table3"]; len(got) != 2 || got[0] != "select" || got[1] != "dml" {
+		t.Errorf("expected table3 -> [select dml], got %v", got)
+	}
+
+	// No typed objects should be produced for table-type grants (they are
+	// expanded into the permissions map like legacy shorthand entries).
+	if len(role.AppDBObjects) != 0 {
+		t.Errorf("expected no app_db objects for table-type grant, got %d", len(role.AppDBObjects))
+	}
+}
+
+func TestRoleConfig_TableNamesKeyIgnored(t *testing.T) {
+	t.Parallel()
+
+	var role config.RoleConfig
+	yamlData := `name: myapp-mnt
+server:
+  '*': [usage]
+app_db:
+  '*': [select]
+  grouping_key:
+    type: table
+    names: [real_table_a, real_table_b]
+    privileges: [select, dml]
+`
+	if err := yaml.Unmarshal([]byte(yamlData), &role); err != nil {
+		t.Fatalf("unmarshal role: %v", err)
+	}
+
+	// The YAML key "grouping_key" must NOT appear as a table entry;
+	// only the names in the list should be expanded.
+	if _, ok := role.AppDB["grouping_key"]; ok {
+		t.Error("grouping_key should not appear in AppDB when names is provided")
+	}
+	if got := role.AppDB["real_table_a"]; len(got) != 2 {
+		t.Errorf("expected real_table_a -> [select dml], got %v", got)
+	}
+	if got := role.AppDB["real_table_b"]; len(got) != 2 {
+		t.Errorf("expected real_table_b -> [select dml], got %v", got)
+	}
+}
+
+func TestRoleConfig_TableNamesSupDB(t *testing.T) {
+	t.Parallel()
+
+	var role config.RoleConfig
+	yamlData := `name: myapp-mnt
+server:
+  '*': [usage]
+app_db:
+  '*': [select]
+sup_db:
+  '*': [select, create_temp]
+  shared:
+    type: table
+    names: [shared_a, shared_b]
+    privileges: [select, dml]
+`
+	if err := yaml.Unmarshal([]byte(yamlData), &role); err != nil {
+		t.Fatalf("unmarshal role: %v", err)
+	}
+
+	if got := role.SupDB["shared_a"]; len(got) != 2 || got[0] != "select" || got[1] != "dml" {
+		t.Errorf("expected shared_a -> [select dml], got %v", got)
+	}
+	if got := role.SupDB["shared_b"]; len(got) != 2 || got[0] != "select" || got[1] != "dml" {
+		t.Errorf("expected shared_b -> [select dml], got %v", got)
+	}
+}
+
+func TestRoleConfig_MixedTableNamesAndProcedures(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors the config.example.yaml structure: a table entry with names
+	// and a procedure entry in the same scope.
+	var role config.RoleConfig
+	yamlData := `name: myapp-mnt
+server:
+  '*': [usage]
+app_db:
+  '*': [select, create_temp]
+  table1: [select, dml]
+  table2:
+    type: table
+    names: [table2, table3]
+    privileges: [select, dml]
+  some_procedures:
+    type: procedure
+    names: [custom_procedure1, custom_procedure2]
+    privileges: [execute_procedure]
+`
+	if err := yaml.Unmarshal([]byte(yamlData), &role); err != nil {
+		t.Fatalf("unmarshal role: %v", err)
+	}
+
+	// Table names expanded into the permissions map.
+	if got := role.AppDB["table2"]; len(got) != 2 || got[0] != "select" || got[1] != "dml" {
+		t.Errorf("expected table2 -> [select dml], got %v", got)
+	}
+	if got := role.AppDB["table3"]; len(got) != 2 || got[0] != "select" || got[1] != "dml" {
+		t.Errorf("expected table3 -> [select dml], got %v", got)
+	}
+
+	// Legacy shorthand entry still works.
+	if got := role.AppDB["table1"]; len(got) != 2 || got[0] != "select" || got[1] != "dml" {
+		t.Errorf("expected table1 -> [select dml], got %v", got)
+	}
+
+	// Procedure object preserved separately.
+	if len(role.AppDBObjects) != 1 {
+		t.Fatalf("expected one procedure object, got %d", len(role.AppDBObjects))
+	}
+	proc := role.AppDBObjects[0]
+	if proc.Type != "procedure" {
+		t.Errorf("expected procedure type, got %q", proc.Type)
+	}
+	if len(proc.Names) != 2 || proc.Names[0] != "custom_procedure1" || proc.Names[1] != "custom_procedure2" {
+		t.Errorf("expected procedure names [custom_procedure1 custom_procedure2], got %v", proc.Names)
+	}
+}
+
 func TestValidate_MissingProgramsFile(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
