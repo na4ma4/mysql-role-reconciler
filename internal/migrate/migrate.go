@@ -293,8 +293,8 @@ func FilterChangedState(
 	changedRoles := make(map[string]struct{})
 	// Roles with create_role: all their grants are included
 	createdRoles := make(map[string]struct{})
-	// Specific targets with grant/revoke: (role, db, table) → true
-	changedTargets := make(map[[3]string]struct{})
+	// Specific targets with grant/revoke: (role, object type, db, table) → true
+	changedTargets := make(map[[4]string]struct{})
 
 	for _, s := range stmts {
 		changedRoles[s.Role] = struct{}{}
@@ -302,7 +302,7 @@ func FilterChangedState(
 			createdRoles[s.Role] = struct{}{}
 		}
 		if s.Type == reconcile.StatementGrant || s.Type == reconcile.StatementRevoke {
-			changedTargets[[3]string{s.Role, s.Database, s.Table}] = struct{}{}
+			changedTargets[[4]string{s.Role, s.ObjectType, s.Database, s.Table}] = struct{}{}
 		}
 	}
 
@@ -321,7 +321,7 @@ func FilterChangedState(
 			continue
 		}
 		// Grants matching a specific changed target
-		key := [3]string{g.Role, g.Database, g.Table}
+		key := [4]string{g.Role, g.ObjectType, g.Database, g.Table}
 		if _, ok := changedTargets[key]; ok {
 			filteredGrants = append(filteredGrants, g)
 		}
@@ -337,6 +337,7 @@ func desiredGrantsToEntries(grants []reconcile.DesiredGrant) []GrantEntry {
 			Role:       g.Role,
 			Database:   g.Database,
 			Table:      g.Table,
+			ObjectType: g.ObjectType,
 			Privileges: g.Privileges,
 		}
 	}
@@ -351,6 +352,7 @@ func GrantEntriesToReconcileEntries(entries []GrantEntry) []reconcile.GrantEntry
 			Role:       e.Role,
 			Database:   e.Database,
 			Table:      e.Table,
+			ObjectType: e.ObjectType,
 			Privileges: e.Privileges,
 		}
 	}
@@ -368,6 +370,7 @@ type GrantEntry struct {
 	Role       string   `json:"role"`
 	Database   string   `json:"database"`
 	Table      string   `json:"table"`
+	ObjectType string   `json:"object_type,omitempty"`
 	Privileges []string `json:"privileges"`
 }
 
@@ -455,6 +458,7 @@ func ComputeStateChecksum(state ServerState) string {
 		Role       string   `json:"role"`
 		Database   string   `json:"database"`
 		Table      string   `json:"table"`
+		ObjectType string   `json:"object_type,omitempty"`
 		Privileges []string `json:"privileges"`
 	}
 
@@ -467,6 +471,7 @@ func ComputeStateChecksum(state ServerState) string {
 			Role:       g.Role,
 			Database:   g.Database,
 			Table:      g.Table,
+			ObjectType: g.ObjectType,
 			Privileges: privs,
 		}
 	}
@@ -476,6 +481,9 @@ func ComputeStateChecksum(state ServerState) string {
 		}
 		if grants[i].Database != grants[j].Database {
 			return grants[i].Database < grants[j].Database
+		}
+		if grants[i].ObjectType != grants[j].ObjectType {
+			return grants[i].ObjectType < grants[j].ObjectType
 		}
 		return grants[i].Table < grants[j].Table
 	})

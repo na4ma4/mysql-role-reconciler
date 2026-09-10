@@ -14,7 +14,8 @@ import (
 type DesiredGrant struct {
 	Role       string
 	Database   string // schema name; "*" = server-level (*.*)
-	Table      string // table name; "*" = all tables in schema (schema.*)
+	Table      string // table or procedure name; "*" = all tables in schema (schema.*)
+	ObjectType string // empty/table for table grants, or procedure
 	Privileges []string
 }
 
@@ -60,11 +61,12 @@ const (
 
 // MigrationStatement represents a SQL statement to be executed.
 type MigrationStatement struct {
-	SQL      string        `json:"sql"`
-	Type     StatementType `json:"type"` // "create_role", "grant", "revoke", "drop_role"
-	Role     string        `json:"role"`
-	Database string        `json:"database"`
-	Table    string        `json:"table"`
+	SQL        string        `json:"sql"`
+	Type       StatementType `json:"type"` // "create_role", "grant", "revoke", "drop_role"
+	Role       string        `json:"role"`
+	Database   string        `json:"database"`
+	Table      string        `json:"table"`
+	ObjectType string        `json:"object_type,omitempty"`
 }
 
 // Plan represents a migration plan for a server.
@@ -152,6 +154,9 @@ func buildDesiredStateInternal(
 		if state.Grants[i].Database != state.Grants[j].Database {
 			return state.Grants[i].Database < state.Grants[j].Database
 		}
+		if state.Grants[i].ObjectType != state.Grants[j].ObjectType {
+			return state.Grants[i].ObjectType < state.Grants[j].ObjectType
+		}
 		return state.Grants[i].Table < state.Grants[j].Table
 	})
 
@@ -204,11 +209,11 @@ func buildRoleGrants(
 	}
 
 	// App DB grants: scope keys are table names within app_db schemas
-	appGrants := buildScopeGrants(role.Name, role.AppDB, allAppDBs, permissionSets)
+	appGrants := buildScopeGrants(role.Name, role.AppDB, role.AppDBObjects, allAppDBs, permissionSets)
 	grants = append(grants, appGrants...)
 
 	// Sup DB grants: scope keys are table names within sup_db schemas
-	supGrants := buildScopeGrants(role.Name, role.SupDB, allSupDBs, permissionSets)
+	supGrants := buildScopeGrants(role.Name, role.SupDB, role.SupDBObjects, allSupDBs, permissionSets)
 	grants = append(grants, supGrants...)
 
 	return grants
@@ -224,21 +229,22 @@ func buildRoleGrants(
 func buildScopeGrants(
 	roleName string,
 	scopePerms map[string][]string,
+	objects []config.RoleObjectConfig,
 	schemas []string,
 	permissionSets map[string][]string,
 ) []DesiredGrant {
-	if len(scopePerms) == 0 || len(schemas) == 0 {
+	if (len(scopePerms) == 0 && len(objects) == 0) || len(schemas) == 0 {
 		return nil
 	}
 
 	var grants []DesiredGrant
-	seen := make(map[string]struct{}) // "schema.table" to deduplicate
+	seen := make(map[string]struct{}) // "type:schema.table" to deduplicate
 
 	for _, schema := range schemas {
 		// Wildcard '*' table: grant on all tables in schema (schema.*)
 		if perms, ok := scopePerms["*"]; ok {
 			resolved := ResolvePermissionSets(perms, permissionSets)
-			grants = addScopeGrant(grants, seen, roleName, schema, "*", resolved)
+			grants = addScopeGrant(grants, seen, roleName, schema, "*", "", resolved)
 		}
 
 		// Specific table names and patterns
@@ -247,7 +253,14 @@ func buildScopeGrants(
 				continue // already handled above
 			}
 			resolved := ResolvePermissionSets(permNames, permissionSets)
-			grants = addScopeGrant(grants, seen, roleName, schema, tableKey, resolved)
+			grants = addScopeGrant(grants, seen, roleName, schema, tableKey, "", resolved)
+		}
+
+		for _, object := range objects {
+			resolved := ResolvePermissionSets(object.Privileges, permissionSets)
+			for _, name := range object.Names {
+				grants = addScopeGrant(grants, seen, roleName, schema, name, object.Type, resolved)
+			}
 		}
 	}
 
@@ -259,13 +272,13 @@ func buildScopeGrants(
 func addScopeGrant(
 	grants []DesiredGrant,
 	seen map[string]struct{},
-	roleName, schema, tableKey string,
+	roleName, schema, tableKey, objectType string,
 	resolved []string,
 ) []DesiredGrant {
 	if len(resolved) == 0 {
 		return grants
 	}
-	key := schema + "." + tableKey
+	key := objectType + ":" + schema + "." + tableKey
 	if _, dup := seen[key]; dup {
 		return grants
 	}
@@ -275,6 +288,7 @@ func addScopeGrant(
 		Role:       roleName,
 		Database:   schema,
 		Table:      tableKey,
+		ObjectType: objectType,
 		Privileges: resolved,
 	})
 }
@@ -363,6 +377,7 @@ func ExpandDatabasePatterns(state *DesiredState, dbNames []string) {
 					Role:       g.Role,
 					Database:   dbName,
 					Table:      g.Table,
+					ObjectType: g.ObjectType,
 					Privileges: g.Privileges,
 				})
 			}
@@ -442,6 +457,7 @@ func Diff(desired *DesiredState, actual *mysql.ActualState, dropRoles bool) []Mi
 			Role:       g.Role,
 			Database:   g.Database,
 			Table:      g.Table,
+			ObjectType: g.ObjectType,
 			Privileges: g.Grants,
 		}
 	}
@@ -530,11 +546,20 @@ func GrantDBRef(database, table string) string {
 	return fmt.Sprintf("`%s`.`%s`", database, table)
 }
 
+func GrantDBRefForType(objectType, database, table string) string {
+	ref := GrantDBRef(database, table)
+	if objectType == "" || objectType == "table" || database == "*" {
+		return ref
+	}
+	return strings.ToUpper(objectType) + " " + ref
+}
+
 // GrantEntry is a generic grant record that can come from desired state or state store.
 type GrantEntry struct {
 	Role       string
 	Database   string
 	Table      string
+	ObjectType string
 	Privileges []string
 }
 
@@ -580,25 +605,28 @@ func DiffGrants(
 			toGrant, toRevoke := diffPrivileges(toPrivList, fromPrivs)
 
 			db, tbl := ParseGrantMapKey(target)
-			dbRef := GrantDBRef(db, tbl)
+			objectType := targetObjectType(target)
+			dbRef := GrantDBRefForType(objectType, db, tbl)
 
 			if len(toGrant) > 0 {
 				stmts = append(stmts, MigrationStatement{
-					SQL:      fmt.Sprintf("GRANT %s ON %s TO '%s'", strings.Join(toGrant, ", "), dbRef, role),
-					Type:     "grant",
-					Role:     role,
-					Database: db,
-					Table:    tbl,
+					SQL:        fmt.Sprintf("GRANT %s ON %s TO '%s'", strings.Join(toGrant, ", "), dbRef, role),
+					Type:       "grant",
+					Role:       role,
+					Database:   db,
+					Table:      tbl,
+					ObjectType: objectType,
 				})
 			}
 
 			if len(toRevoke) > 0 {
 				stmts = append(stmts, MigrationStatement{
-					SQL:      fmt.Sprintf("REVOKE %s ON %s FROM '%s'", strings.Join(toRevoke, ", "), dbRef, role),
-					Type:     "revoke",
-					Role:     role,
-					Database: db,
-					Table:    tbl,
+					SQL:        fmt.Sprintf("REVOKE %s ON %s FROM '%s'", strings.Join(toRevoke, ", "), dbRef, role),
+					Type:       "revoke",
+					Role:       role,
+					Database:   db,
+					Table:      tbl,
+					ObjectType: objectType,
 				})
 			}
 		}
@@ -620,6 +648,9 @@ func DiffGrants(
 		}
 		if stmts[i].Database != stmts[j].Database {
 			return stmts[i].Database < stmts[j].Database
+		}
+		if stmts[i].ObjectType != stmts[j].ObjectType {
+			return stmts[i].ObjectType < stmts[j].ObjectType
 		}
 		return stmts[i].Table < stmts[j].Table
 	})
@@ -646,15 +677,17 @@ func revokeFromOnlyGrants(
 			}
 
 			db, tbl := ParseGrantMapKey(target)
-			dbRef := GrantDBRef(db, tbl)
+			objectType := targetObjectType(target)
+			dbRef := GrantDBRefForType(objectType, db, tbl)
 			revList := sortedKeys(privs)
 			if len(revList) > 0 {
 				stmts = append(stmts, MigrationStatement{
-					SQL:      fmt.Sprintf("REVOKE %s ON %s FROM '%s'", strings.Join(revList, ", "), dbRef, role),
-					Type:     "revoke",
-					Role:     role,
-					Database: db,
-					Table:    tbl,
+					SQL:        fmt.Sprintf("REVOKE %s ON %s FROM '%s'", strings.Join(revList, ", "), dbRef, role),
+					Type:       "revoke",
+					Role:       role,
+					Database:   db,
+					Table:      tbl,
+					ObjectType: objectType,
 				})
 			}
 		}
@@ -695,7 +728,7 @@ func buildGrantEntryMap(grants []GrantEntry) map[string]map[string]map[string]st
 		if result[g.Role] == nil {
 			result[g.Role] = make(map[string]map[string]struct{})
 		}
-		key := GrantMapKey(g.Database, g.Table)
+		key := grantEntryKey(g.ObjectType, g.Database, g.Table)
 		if result[g.Role][key] == nil {
 			result[g.Role][key] = make(map[string]struct{})
 		}
@@ -708,6 +741,9 @@ func buildGrantEntryMap(grants []GrantEntry) map[string]map[string]map[string]st
 
 // ParseGrantMapKey splits a GrantMapKey back into database and table.
 func ParseGrantMapKey(key string) (string, string) {
+	if _, target, ok := strings.Cut(key, "\x00"); ok {
+		key = target
+	}
 	if key == "*.*" {
 		return "*", ""
 	}
@@ -716,6 +752,21 @@ func ParseGrantMapKey(key string) (string, string) {
 		return key, ""
 	}
 	return before, after
+}
+
+func grantEntryKey(objectType, database, table string) string {
+	if objectType == "" || objectType == "table" {
+		return GrantMapKey(database, table)
+	}
+	return objectType + "\x00" + GrantMapKey(database, table)
+}
+
+func targetObjectType(key string) string {
+	objectType, _, ok := strings.Cut(key, "\x00")
+	if !ok {
+		return ""
+	}
+	return objectType
 }
 
 func sortedKeys(m map[string]struct{}) []string {

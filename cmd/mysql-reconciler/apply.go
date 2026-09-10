@@ -267,6 +267,7 @@ func desiredGrantsToMigrateEntries(grants []reconcile.DesiredGrant) []migrate.Gr
 			Role:       g.Role,
 			Database:   g.Database,
 			Table:      g.Table,
+			ObjectType: g.ObjectType,
 			Privileges: g.Privileges,
 		}
 	}

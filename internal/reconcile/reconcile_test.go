@@ -348,6 +348,48 @@ func TestBuildDesiredState_TableLevelGrants(t *testing.T) {
 	}
 }
 
+func TestBuildDesiredState_ProcedureGrants(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		PermissionSets: map[string][]string{
+			"execute_procedure": {"EXECUTE"},
+		},
+		Roles: []config.RoleConfig{{
+			Name: "myapp-mnt",
+			AppDBObjects: []config.RoleObjectConfig{{
+				Type:       "procedure",
+				Names:      []string{"create_user", "delete_user"},
+				Privileges: []string{"execute_procedure"},
+			}},
+		}},
+	}
+	progs := config.ProgramsFile{{
+		Name:   "myapp",
+		Server: map[string]string{"prod": "rdsserver1"},
+		AppDB:  []string{"appname_myapp"},
+	}}
+
+	state := reconcile.BuildDesiredState("rdsserver1", "prod", cfg, progs)
+	if len(state.Grants) != 2 {
+		t.Fatalf("expected two procedure grants, got %d: %+v", len(state.Grants), state.Grants)
+	}
+	for _, grant := range state.Grants {
+		if grant.ObjectType != "procedure" || grant.Database != "appname_myapp" {
+			t.Errorf("unexpected procedure grant: %+v", grant)
+		}
+	}
+
+	stmts := reconcile.Diff(state, &mysql.ActualState{Roles: []string{"myapp-mnt"}}, false)
+	if len(stmts) != 2 {
+		t.Fatalf("expected two grant statements, got %d: %+v", len(stmts), stmts)
+	}
+	for _, stmt := range stmts {
+		if stmt.SQL != "GRANT EXECUTE ON PROCEDURE `appname_myapp`.`"+stmt.Table+"` TO 'myapp-mnt'" {
+			t.Errorf("unexpected procedure SQL: %s", stmt.SQL)
+		}
+	}
+}
+
 func TestDiff_CreateRoleAndGrant(t *testing.T) {
 	t.Parallel()
 	desired := &reconcile.DesiredState{
