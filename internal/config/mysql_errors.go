@@ -43,8 +43,7 @@ var mySQLErrorNames = map[uint16]MySQLErrorCode{
 // the error is not a MySQL error. Known names match the keys defined in
 // the ignore_errors config. Unrecognized MySQL errors return "mysql_<code>".
 func ClassifyError(err error) MySQLErrorCode {
-	var mysqlErr *driver.MySQLError
-	if errors.As(err, &mysqlErr) {
+	if mysqlErr, mysqlErrOk := errors.AsType[*driver.MySQLError](err); mysqlErrOk {
 		if name, ok := mySQLErrorNames[mysqlErr.Number]; ok {
 			return name
 		}

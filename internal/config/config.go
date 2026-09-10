@@ -209,7 +209,7 @@ func (c *IgnoreErrorsConfig) UnmarshalYAML(unmarshal func(any) error) error {
 
 // MarshalYAML emits true when All is set and there are no specific names,
 // otherwise emits the list. This round-trips cleanly with UnmarshalYAML.
-func (c IgnoreErrorsConfig) MarshalYAML() (any, error) {
+func (c *IgnoreErrorsConfig) MarshalYAML() (any, error) {
 	if c.All && len(c.Errors) == 0 {
 		return true, nil
 	}
