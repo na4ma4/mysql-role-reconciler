@@ -3,7 +3,6 @@ updates:
   - package-ecosystem: "gomod"
     directories:
       - "/"
-      - "/magefiles"
     schedule:
       interval: "weekly"
     groups:
