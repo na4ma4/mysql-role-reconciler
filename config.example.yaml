@@ -59,7 +59,7 @@ roles:
         privileges: [ "select", "dml"]
       some_procedures:
         type: procedure
-        names: [ "custom_precedure1", "custom_procedure2" ]
+        names: [ "custom_procedure1", "custom_procedure2" ]
         privileges: [ "execute_procedure" ]
     sup_db:
       '*': [ "select", "create_temp" ]

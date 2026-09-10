@@ -574,14 +574,24 @@ func DiffGrants(
 	fromGrants []GrantEntry,
 	dropRoles bool,
 ) []MigrationStatement {
-	var stmts []MigrationStatement
+	stmts := createMissingRoleStatements(toRoles, fromRoles)
+	fromMap := buildGrantEntryMap(fromGrants)
+	toMap := buildGrantEntryMap(toGrants)
 
-	fromRoleSet := make(map[string]struct{})
-	for _, r := range fromRoles {
-		fromRoleSet[r] = struct{}{}
+	stmts = append(stmts, grantDiffStatements(fromMap, toMap)...)
+	stmts = append(stmts, revokeFromOnlyGrants(fromMap, toMap)...)
+	stmts = append(stmts, dropMissingRoles(fromRoles, toRoles, dropRoles)...)
+	sortMigrationStatements(stmts)
+	return stmts
+}
+
+func createMissingRoleStatements(toRoles, fromRoles []string) []MigrationStatement {
+	fromRoleSet := make(map[string]struct{}, len(fromRoles))
+	for _, role := range fromRoles {
+		fromRoleSet[role] = struct{}{}
 	}
 
-	// Create missing roles
+	var stmts []MigrationStatement
 	for _, role := range toRoles {
 		if _, ok := fromRoleSet[role]; !ok {
 			stmts = append(stmts, MigrationStatement{
@@ -591,71 +601,75 @@ func DiffGrants(
 			})
 		}
 	}
+	return stmts
+}
 
-	// Build grant maps for both sides
-	fromMap := buildGrantEntryMap(fromGrants)
-	toMap := buildGrantEntryMap(toGrants)
-
-	// Process all "to" grants
+func grantDiffStatements(
+	fromMap, toMap map[string]map[string]map[string]struct{},
+) []MigrationStatement {
+	var stmts []MigrationStatement
 	for role, targets := range toMap {
 		for target, privs := range targets {
-			fromPrivs := fromMap[role][target]
-			toPrivList := sortedKeys(privs)
-
-			toGrant, toRevoke := diffPrivileges(toPrivList, fromPrivs)
-
-			db, tbl := ParseGrantMapKey(target)
-			objectType := targetObjectType(target)
-			dbRef := GrantDBRefForType(objectType, db, tbl)
-
-			if len(toGrant) > 0 {
-				stmts = append(stmts, MigrationStatement{
-					SQL:        fmt.Sprintf("GRANT %s ON %s TO '%s'", strings.Join(toGrant, ", "), dbRef, role),
-					Type:       "grant",
-					Role:       role,
-					Database:   db,
-					Table:      tbl,
-					ObjectType: objectType,
-				})
-			}
-
-			if len(toRevoke) > 0 {
-				stmts = append(stmts, MigrationStatement{
-					SQL:        fmt.Sprintf("REVOKE %s ON %s FROM '%s'", strings.Join(toRevoke, ", "), dbRef, role),
-					Type:       "revoke",
-					Role:       role,
-					Database:   db,
-					Table:      tbl,
-					ObjectType: objectType,
-				})
-			}
+			stmts = append(stmts, grantDiffForTarget(role, target, privs, fromMap[role])...)
 		}
 	}
-
-	// Revoke grants in "from" that are not in "to" at all
-	stmts = append(stmts, revokeFromOnlyGrants(fromMap, toMap)...)
-
-	// Drop roles not in "to" config (if enabled)
-	stmts = append(stmts, dropMissingRoles(fromRoles, toRoles, dropRoles)...)
-
-	// Sort statements for deterministic output: by type order, then role, database, table.
-	sort.Slice(stmts, func(i, j int) bool {
-		if stmts[i].Type.CompareOrder() != stmts[j].Type.CompareOrder() {
-			return stmts[i].Type.CompareOrder() < stmts[j].Type.CompareOrder()
-		}
-		if stmts[i].Role != stmts[j].Role {
-			return stmts[i].Role < stmts[j].Role
-		}
-		if stmts[i].Database != stmts[j].Database {
-			return stmts[i].Database < stmts[j].Database
-		}
-		if stmts[i].ObjectType != stmts[j].ObjectType {
-			return stmts[i].ObjectType < stmts[j].ObjectType
-		}
-		return stmts[i].Table < stmts[j].Table
-	})
-
 	return stmts
+}
+
+func grantDiffForTarget(
+	role, target string,
+	toPrivs map[string]struct{},
+	fromTargets map[string]map[string]struct{},
+) []MigrationStatement {
+	toGrant, toRevoke := diffPrivileges(sortedKeys(toPrivs), fromTargets[target])
+	db, tbl := ParseGrantMapKey(target)
+	objectType := targetObjectType(target)
+	dbRef := GrantDBRefForType(objectType, db, tbl)
+
+	var stmts []MigrationStatement
+	if len(toGrant) > 0 {
+		stmts = append(stmts, MigrationStatement{
+			SQL:        fmt.Sprintf("GRANT %s ON %s TO '%s'", strings.Join(toGrant, ", "), dbRef, role),
+			Type:       "grant",
+			Role:       role,
+			Database:   db,
+			Table:      tbl,
+			ObjectType: objectType,
+		})
+	}
+	if len(toRevoke) > 0 {
+		stmts = append(stmts, MigrationStatement{
+			SQL:        fmt.Sprintf("REVOKE %s ON %s FROM '%s'", strings.Join(toRevoke, ", "), dbRef, role),
+			Type:       "revoke",
+			Role:       role,
+			Database:   db,
+			Table:      tbl,
+			ObjectType: objectType,
+		})
+	}
+	return stmts
+}
+
+func sortMigrationStatements(stmts []MigrationStatement) {
+	sort.Slice(stmts, func(i, j int) bool {
+		return migrationStatementLess(stmts[i], stmts[j])
+	})
+}
+
+func migrationStatementLess(a, b MigrationStatement) bool {
+	if a.Type.CompareOrder() != b.Type.CompareOrder() {
+		return a.Type.CompareOrder() < b.Type.CompareOrder()
+	}
+	if a.Role != b.Role {
+		return a.Role < b.Role
+	}
+	if a.Database != b.Database {
+		return a.Database < b.Database
+	}
+	if a.ObjectType != b.ObjectType {
+		return a.ObjectType < b.ObjectType
+	}
+	return a.Table < b.Table
 }
 
 // revokeFromOnlyGrants generates REVOKE statements for grants that exist in "from"
