@@ -229,7 +229,10 @@ func ParseGrantString(_ context.Context, _ *sql.DB, srvCfg config.ServerConfig, 
 	privs := ParsePrivileges(privStr)
 
 	return &Grant{
-		ID:          strings.Join([]string{srvCfg.ID(), objectType, database, table, role}, "."), // e.g., "myserver.mydb.*.myrole"
+		ID: strings.Join(
+			[]string{srvCfg.ID(), objectType, database, table, role},
+			".",
+		), // e.g., "myserver.mydb.*.myrole"
 		Role:        role,
 		Server:      srvCfg.ID(),
 		Database:    database,

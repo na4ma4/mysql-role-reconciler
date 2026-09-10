@@ -28,62 +28,74 @@ func runSortPlan(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 
 	planPath := args[0]
-
-	var plan *migrate.PlanFile
-	{
-		var err error
-		plan, err = migrate.ReadPlanFile(planPath)
-		if err != nil {
-			return fmt.Errorf("reading plan file: %w", err)
-		}
+	plan, err := migrate.ReadPlanFile(planPath)
+	if err != nil {
+		return fmt.Errorf("reading plan file: %w", err)
 	}
 
-	// Sort servers by name
+	sortPlanFile(plan)
+
+	// Convert back to Plan format and write
+	plans := reconcilePlans(plan)
+
+	if err = migrate.WritePlanFile(planPath, plan.Environment, plans); err != nil {
+		return fmt.Errorf("writing plan file: %w", err)
+	}
+
+	fmt.Fprintf(os.Stdout, "Plan file %s re-sorted\n", planPath)
+	return nil
+}
+
+func sortPlanFile(plan *migrate.PlanFile) {
 	sort.Slice(plan.Servers, func(i, j int) bool {
 		return plan.Servers[i].Server < plan.Servers[j].Server
 	})
 
 	for i := range plan.Servers {
-		sp := &plan.Servers[i]
-
-		// Sort statements by type order, then role, database, table
-		sort.Slice(sp.Statements, func(a, b int) bool {
-			sa, sb := sp.Statements[a], sp.Statements[b]
-			if sa.Type.CompareOrder() != sb.Type.CompareOrder() {
-				return sa.Type.CompareOrder() < sb.Type.CompareOrder()
-			}
-			if sa.Role != sb.Role {
-				return sa.Role < sb.Role
-			}
-			if sa.Database != sb.Database {
-				return sa.Database < sb.Database
-			}
-			if sa.ObjectType != sb.ObjectType {
-				return sa.ObjectType < sb.ObjectType
-			}
-			return sa.Table < sb.Table
-		})
-
-		// Sort roles
-		sort.Strings(sp.Roles)
-
-		// Sort grants by role, database, table
-		sort.Slice(sp.Grants, func(a, b int) bool {
-			ga, gb := sp.Grants[a], sp.Grants[b]
-			if ga.Role != gb.Role {
-				return ga.Role < gb.Role
-			}
-			if ga.Database != gb.Database {
-				return ga.Database < gb.Database
-			}
-			if ga.ObjectType != gb.ObjectType {
-				return ga.ObjectType < gb.ObjectType
-			}
-			return ga.Table < gb.Table
-		})
+		sortPlanServer(&plan.Servers[i])
 	}
+}
 
-	// Convert back to Plan format and write
+func sortPlanServer(plan *migrate.ServerPlan) {
+	sort.Slice(plan.Statements, func(i, j int) bool {
+		return sortPlanStatementLess(plan.Statements[i], plan.Statements[j])
+	})
+	sort.Strings(plan.Roles)
+	sort.Slice(plan.Grants, func(i, j int) bool {
+		return sortPlanGrantLess(plan.Grants[i], plan.Grants[j])
+	})
+}
+
+func sortPlanStatementLess(a, b reconcile.MigrationStatement) bool {
+	if a.Type.CompareOrder() != b.Type.CompareOrder() {
+		return a.Type.CompareOrder() < b.Type.CompareOrder()
+	}
+	if a.Role != b.Role {
+		return a.Role < b.Role
+	}
+	if a.Database != b.Database {
+		return a.Database < b.Database
+	}
+	if a.ObjectType != b.ObjectType {
+		return a.ObjectType < b.ObjectType
+	}
+	return a.Table < b.Table
+}
+
+func sortPlanGrantLess(a, b migrate.GrantEntry) bool {
+	if a.Role != b.Role {
+		return a.Role < b.Role
+	}
+	if a.Database != b.Database {
+		return a.Database < b.Database
+	}
+	if a.ObjectType != b.ObjectType {
+		return a.ObjectType < b.ObjectType
+	}
+	return a.Table < b.Table
+}
+
+func reconcilePlans(plan *migrate.PlanFile) []*reconcile.Plan {
 	plans := make([]*reconcile.Plan, len(plan.Servers))
 	for i, sp := range plan.Servers {
 		plans[i] = &reconcile.Plan{
@@ -95,13 +107,7 @@ func runSortPlan(cmd *cobra.Command, args []string) error {
 			StateChecksum: sp.StateChecksum,
 		}
 	}
-
-	if err := migrate.WritePlanFile(planPath, plan.Environment, plans); err != nil {
-		return fmt.Errorf("writing plan file: %w", err)
-	}
-
-	fmt.Fprintf(os.Stdout, "Plan file %s re-sorted\n", planPath)
-	return nil
+	return plans
 }
 
 func grantEntriesToDesired(entries []migrate.GrantEntry) []reconcile.DesiredGrant {
