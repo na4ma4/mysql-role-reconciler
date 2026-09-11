@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/na4ma4/mysql-role-reconciler/compare/v1.1.0...v1.2.0) (2026-09-11)
+
+
+### Features
+
+* add support for routine execution privileges ([8996bf3](https://github.com/na4ma4/mysql-role-reconciler/commit/8996bf34a6a4828c67d808533e23209c8544a954))
+
 ## [1.1.0](https://github.com/na4ma4/mysql-role-reconciler/compare/v1.0.0...v1.1.0) (2026-09-11)
 
 
