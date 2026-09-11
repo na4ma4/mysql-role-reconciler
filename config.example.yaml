@@ -61,6 +61,10 @@ roles:
         type: procedure
         names: [ "custom_procedure1", "custom_procedure2" ]
         privileges: [ "execute_procedure" ]
+      some_functions:
+        type: function
+        names: [ "custom_function1", "custom_function2" ]
+        privileges: [ "execute_procedure" ]
     sup_db:
       '*': [ "select", "create_temp" ]
 

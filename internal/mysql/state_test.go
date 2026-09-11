@@ -93,6 +93,23 @@ func TestParseGrantString_ProcedureLevel(t *testing.T) {
 	}
 }
 
+func TestParseGrantString_FunctionLevel(t *testing.T) {
+	t.Parallel()
+	result := mysql.ParseGrantString(
+		t.Context(),
+		nil,
+		config.ServerConfig{Host: "test-host.example.com"},
+		"mnt",
+		"GRANT EXECUTE ON FUNCTION `mydb`.`get_user` TO 'mnt'@'%'",
+	)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ObjectType != "function" || result.Database != "mydb" || result.Table != "get_user" {
+		t.Errorf("unexpected function grant: %+v", result)
+	}
+}
+
 func TestParseGrantString_AllPrivileges(t *testing.T) {
 	t.Parallel()
 	result := mysql.ParseGrantString(
