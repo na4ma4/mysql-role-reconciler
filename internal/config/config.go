@@ -289,9 +289,9 @@ func decodeRoleScope(values map[string]yaml.Node, scope string) (map[string][]st
 			for _, name := range names {
 				permissions[name] = object.Privileges
 			}
-		case "procedure":
+		case "procedure", "function":
 			if len(object.Names) == 0 {
-				return nil, nil, fmt.Errorf("%s.%s procedure grant requires names", scope, key)
+				return nil, nil, fmt.Errorf("%s.%s %s grant requires names", scope, key, object.Type)
 			}
 			objects = append(objects, object)
 		default:

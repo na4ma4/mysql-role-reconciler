@@ -261,6 +261,10 @@ app_db:
     type: procedure
     names: ["custom_procedure1", "custom_procedure2"]
     privileges: ["execute_procedure"]
+  some_functions:
+    type: function
+    names: ["custom_function1", "custom_function2"]
+    privileges: ["execute_procedure"]
 ```
 
 Server-scope keys in the `server` field:
@@ -272,7 +276,10 @@ Server-scope keys in the `server` field:
 | `'dbname.tablename'` | `` `dbname`.`tablename` `` (specific table) |
 
 Typed `table` entries are equivalent to the shorthand form. Typed `procedure`
-entries generate `GRANT ... ON PROCEDURE schema.name` for each name.
+and `function` entries generate `GRANT ... ON PROCEDURE schema.name` and
+`GRANT ... ON FUNCTION schema.name` for each name. The `EXECUTE` privilege
+(`execute_procedure`, or any permission set resolving to `EXECUTE`) applies to
+both stored procedures and stored functions.
 
 ## Database Pattern Expansion
 

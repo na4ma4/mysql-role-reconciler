@@ -14,8 +14,8 @@ import (
 type DesiredGrant struct {
 	Role       string
 	Database   string // schema name; "*" = server-level (*.*)
-	Table      string // table or procedure name; "*" = all tables in schema (schema.*)
-	ObjectType string // empty/table for table grants, or procedure
+	Table      string // table, procedure, or function name; "*" = all tables in schema (schema.*)
+	ObjectType string // empty/table for table grants, or procedure/function
 	Privileges []string
 }
 

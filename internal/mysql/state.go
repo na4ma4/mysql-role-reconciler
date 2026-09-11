@@ -16,8 +16,8 @@ type Grant struct {
 	Server      string // server this grant applies to
 	Role        string
 	Database    string // schema name; "*" means server-level (*.*)
-	Table       string // table or procedure name; "*" means all tables (schema.*); empty for server-level
-	ObjectType  string // empty/table for table grants, or procedure
+	Table       string // table, procedure, or function name; "*" means all tables (schema.*); empty for server-level
+	ObjectType  string // empty/table for table grants, or procedure/function
 	Grants      []string
 	GrantOption bool
 }

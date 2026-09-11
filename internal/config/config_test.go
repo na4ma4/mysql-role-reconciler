@@ -212,6 +212,54 @@ app_db:
 	}
 }
 
+func TestRoleConfig_FunctionGrants(t *testing.T) {
+	t.Parallel()
+
+	var role config.RoleConfig
+	yamlData := `name: myapp-mnt
+server:
+  '*': [usage]
+app_db:
+  '*': [select]
+  functions:
+    type: function
+    names: [get_user, delete_expired]
+    privileges: [execute_procedure]
+`
+	if err := yaml.Unmarshal([]byte(yamlData), &role); err != nil {
+		t.Fatalf("unmarshal role: %v", err)
+	}
+
+	if len(role.AppDBObjects) != 1 {
+		t.Fatalf("expected one function object, got %d", len(role.AppDBObjects))
+	}
+	fn := role.AppDBObjects[0]
+	if fn.Type != "function" {
+		t.Errorf("expected function type, got %q", fn.Type)
+	}
+	if len(fn.Names) != 2 || fn.Names[0] != "get_user" || fn.Names[1] != "delete_expired" {
+		t.Errorf("expected function names [get_user delete_expired], got %v", fn.Names)
+	}
+	if len(fn.Privileges) != 1 || fn.Privileges[0] != "execute_procedure" {
+		t.Errorf("expected privileges [execute_procedure], got %v", fn.Privileges)
+	}
+}
+
+func TestRoleConfig_FunctionRequiresNames(t *testing.T) {
+	t.Parallel()
+
+	var role config.RoleConfig
+	yamlData := `name: myapp-mnt
+app_db:
+  functions:
+    type: function
+    privileges: [execute_procedure]
+`
+	if err := yaml.Unmarshal([]byte(yamlData), &role); err == nil {
+		t.Fatal("expected error for function grant without names")
+	}
+}
+
 func TestRoleConfig_TableNamesExpansion(t *testing.T) {
 	t.Parallel()
 
