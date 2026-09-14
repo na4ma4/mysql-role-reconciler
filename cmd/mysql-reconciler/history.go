@@ -85,7 +85,8 @@ func runHistory(cmd *cobra.Command, _ []string) error {
 					failure.Error,
 				)
 			}
-		} else if entry.Error != "" {
+		}
+		if entry.Error != "" {
 			fmt.Fprintf(os.Stdout, "  Error:       %s\n", entry.Error)
 			if entry.FailedSQL != "" {
 				fmt.Fprintf(os.Stdout, "  Failed SQL:  %s\n", entry.FailedSQL)
