@@ -497,6 +497,32 @@ func TestServerConfig_EnabledExplicitTrue(t *testing.T) {
 	}
 }
 
+func TestServerConfig_IgnoreErrors(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	serversYAML := `qa-rds:
+  host: "qa-rds.example.com"
+  ignore_errors: ["procedure_not_found", "routine_not_found"]
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "servers.yaml"), []byte(serversYAML), 0o644); err != nil {
+		t.Fatalf("write servers.yaml: %v", err)
+	}
+
+	srvs, err := config.LoadServers(filepath.Join(tmpDir, "servers.yaml"))
+	if err != nil {
+		t.Fatalf("LoadServers failed: %v", err)
+	}
+
+	ignore := srvs["qa-rds"].IgnoreErrors
+	if !ignore.ShouldIgnore(config.MySQLErrorRoutineNotFound) {
+		t.Error("server ignore_errors should match routine_not_found")
+	}
+	if !ignore.ShouldIgnore(config.MySQLErrorProcedureNotFound) {
+		t.Error("server ignore_errors should match procedure_not_found")
+	}
+}
+
 func TestIsTemplate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

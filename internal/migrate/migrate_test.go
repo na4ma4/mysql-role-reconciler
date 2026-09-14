@@ -208,6 +208,52 @@ func TestWriteAndReadHistory(t *testing.T) {
 	}
 }
 
+func TestWriteAndReadHistoryWithFailures(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	ctx := context.Background()
+	store := migrate.NewLocalStorage(tmpDir)
+
+	entry := migrate.HistoryEntry{
+		Timestamp:   "2026-05-14T10:00:00Z",
+		Environment: "prod",
+		Server:      "rdsserver1",
+		Statements:  []string{"CREATE ROLE 'ro'"},
+		Checksum:    "abc123",
+		Error:       "server \"rdsserver1\": 1 statement(s) failed",
+		FailedSQL:   "GRANT SELECT ON `app`.* TO 'ro'",
+		Failures: []migrate.StatementFailure{
+			{
+				SQL:       "GRANT SELECT ON `app`.* TO 'ro'",
+				ErrorCode: "table_not_found",
+				Error:     "table does not exist",
+			},
+		},
+	}
+
+	if err := migrate.WriteHistory(ctx, store, entry); err != nil {
+		t.Fatalf("WriteHistory failed: %v", err)
+	}
+
+	entries, err := migrate.ReadHistory(ctx, store)
+	if err != nil {
+		t.Fatalf("ReadHistory failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(entries))
+	}
+	if len(entries[0].Failures) != 1 {
+		t.Fatalf("expected 1 failure, got %d", len(entries[0].Failures))
+	}
+
+	failure := entries[0].Failures[0]
+	if failure.SQL != entry.Failures[0].SQL ||
+		failure.ErrorCode != entry.Failures[0].ErrorCode ||
+		failure.Error != entry.Failures[0].Error {
+		t.Errorf("failure = %+v, want %+v", failure, entry.Failures[0])
+	}
+}
+
 func TestReadHistory_V1Format(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

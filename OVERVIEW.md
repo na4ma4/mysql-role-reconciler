@@ -44,7 +44,7 @@ flowchart TD
     F --> G{For each server in plan}
 
     G --> H[Connect to MySQL]
-    H --> I[Build ignore_errors lookup<br/>per program]
+    H --> I[Build ignore_errors lookup<br/>per server and program]
 
     I --> J{Next statement?}
     J -- No more --> K{All succeeded?}
@@ -63,7 +63,7 @@ flowchart TD
     S -- No --> T[Record applied statement]
     T --> J
 
-    S -- Yes --> U{Error ignored<br/>by program config?}
+    S -- Yes --> U{Error ignored<br/>by server or program?}
     U -- Yes --> V[Log ~ IGNORED]
     V --> J
     U -- No --> Q

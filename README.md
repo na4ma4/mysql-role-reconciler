@@ -78,14 +78,22 @@ When `--program` is specified, only the named program(s) are included in the pla
 ### `apply`
 
 ```
-mysql-reconciler apply -c config.yaml [-e ENV] PLAN_FILE
+mysql-reconciler apply -c config.yaml [--warn-on-error] [-e ENV] PLAN_FILE
 ```
 
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--environment` | `-e` | Environment name (defaults to the environment stored in the plan file) |
+| `--warn-on-error` | | Continue after individual SQL failures; all-failed applies still return an error |
 
 When `--environment` is omitted, the environment is read from the plan file. If specified, it must match the plan file's environment or an error is returned.
+
+`--warn-on-error` continues after individual SQL execution failures and reports
+them as warnings. It continues applying later statements and servers, marks
+affected state as stale, and records the failures in history. The command
+returns an error if every attempted statement fails. Connection, validation,
+state/history, and interrupt errors remain fatal. Without this flag, apply
+keeps its default fail-fast behavior.
 
 **Interrupt handling:** The first Ctrl+C finishes the current statement and saves partial state/history; the second Ctrl+C forces an immediate exit. After a partial apply, the state is marked stale, which forces a re-plan before the next apply.
 
@@ -216,6 +224,10 @@ rdsserver1-sham:
 otherserver:
   host: "otherserver.example.com"
   enabled: false
+
+qa-rds:
+  host: "qa-rds.example.com"
+  ignore_errors: ["procedure_not_found", "routine_not_found"]
 ```
 
 | Field | Description |
@@ -228,6 +240,7 @@ otherserver:
 | `aws_region` | AWS region for IAM auth token generation |
 | `aws_id` | AWS identifier for IAM auth endpoint |
 | `enabled` | Whether the server is active (default: `true`) |
+| `ignore_errors` | MySQL errors to ignore for every statement on this server |
 | `ssl.ca` | Path to CA certificate file |
 | `ssl.cert` | Path to client certificate file |
 | `ssl.key` | Path to client key file |
@@ -318,8 +331,9 @@ Named error types:
 | 1146 | `table_not_found` |
 | 1394 | `role_not_found` |
 | 1396 | `duplicate_role` |
+| 1305 | `routine_not_found`, `procedure_not_found` |
 
-Unrecognized MySQL errors are classified as `mysql_<code>`. Non-MySQL errors are classified as `"unknown"`. Ignored errors are logged with `~ IGNORED` during apply.
+Unrecognized MySQL errors are classified as `mysql_<code>`. Non-MySQL errors are classified as `"unknown"`. `routine_not_found` and `procedure_not_found` are aliases for MySQL error 1305. Ignore rules can be set on programs or servers; server rules apply to every statement on that server. Ignored errors are logged with `~ IGNORED` during apply.
 
 ## Drift Detection
 
@@ -346,7 +360,7 @@ Within each type, sorted by role, database, table.
 
 **State store** (`.mysql-reconciler-state.json`): maps server name → last-applied desired state (roles, grants, checksum). Used for drift detection and stale plan validation.
 
-**History** (`.mysql-reconciler-history/`): one YAML file per apply, containing timestamp, environment, server, statements, and checksum. Partial applies also record error details and the failed SQL.
+**History** (`.mysql-reconciler-history/`): one YAML file per apply, containing timestamp, environment, server, statements, and checksum. Partial applies also record error details and failed SQL. Warning-mode partial applies record every failed statement with its classified error code and message.
 
 **Stale state:** When an apply fails or is interrupted, the state is marked stale. This changes the state checksum, which forces a re-plan before the next apply. The `apply` command also validates that the plan file's state checksum matches the current state store.
 

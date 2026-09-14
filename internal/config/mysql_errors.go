@@ -14,17 +14,19 @@ func (c MySQLErrorCode) String() string {
 }
 
 const (
-	MySQLErrorAccessDenied   MySQLErrorCode = "access_denied"
-	MySQLErrorSchemaNotFound MySQLErrorCode = "schema_not_found"
-	MySQLErrorAlreadyExists  MySQLErrorCode = "already_exists"
-	MySQLErrorColumnNotFound MySQLErrorCode = "column_not_found"
-	MySQLErrorDuplicateEntry MySQLErrorCode = "duplicate_entry"
-	MySQLErrorTableNotFound  MySQLErrorCode = "table_not_found"
-	MySQLErrorRoleNotFound   MySQLErrorCode = "role_not_found"
-	MySQLErrorDuplicateRole  MySQLErrorCode = "duplicate_role"
+	MySQLErrorAccessDenied      MySQLErrorCode = "access_denied"
+	MySQLErrorSchemaNotFound    MySQLErrorCode = "schema_not_found"
+	MySQLErrorAlreadyExists     MySQLErrorCode = "already_exists"
+	MySQLErrorColumnNotFound    MySQLErrorCode = "column_not_found"
+	MySQLErrorDuplicateEntry    MySQLErrorCode = "duplicate_entry"
+	MySQLErrorTableNotFound     MySQLErrorCode = "table_not_found"
+	MySQLErrorRoleNotFound      MySQLErrorCode = "role_not_found"
+	MySQLErrorDuplicateRole     MySQLErrorCode = "duplicate_role"
+	MySQLErrorRoutineNotFound   MySQLErrorCode = "routine_not_found"
+	MySQLErrorProcedureNotFound MySQLErrorCode = "procedure_not_found"
 )
 
-// Named error types that can be used in program ignore_errors config.
+// Named error types that can be used in ignore_errors config.
 // Maps MySQL error codes to short human-friendly names.
 //
 //nolint:gochecknoglobals // (this is a static map of constants, not mutable state)
@@ -37,6 +39,7 @@ var mySQLErrorNames = map[uint16]MySQLErrorCode{
 	1146: MySQLErrorTableNotFound,
 	1394: MySQLErrorRoleNotFound,
 	1396: MySQLErrorDuplicateRole,
+	1305: MySQLErrorRoutineNotFound,
 }
 
 // ClassifyError returns a short name for a MySQL error, or "unknown" if
