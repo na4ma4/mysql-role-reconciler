@@ -55,8 +55,11 @@ When `--program` is specified, only the named program(s) are included in the pla
 |------|-------|-------------|
 | `--config` | `-c` | Path to config.yaml (required) |
 | `--environment` | `-e` | Environment name (defaults to the environment stored in the plan file) |
+| `--warn-on-error` | | Continue after individual SQL failures; all-failed applies still return an error |
 
 When `--environment` is omitted, the environment is read from the plan file. If specified, it must match the plan file's environment or an error is returned.
+
+`--warn-on-error` continues after individual SQL execution failures, marks affected state stale, and records each failed statement in history. It returns an error if every attempted statement fails. Connection, validation, state/history, and interrupt errors remain fatal. Without this flag, apply remains fail-fast.
 
 **Interrupt handling:** First Ctrl+C sets the interrupted flag, finishes the current statement, and saves partial state/history (marked stale). Second Ctrl+C forces immediate exit (`os.Exit(130)`). A stale state changes the checksum, forcing a re-plan before the next apply.
 
@@ -93,7 +96,7 @@ Three YAML files, referenced from `config.yaml`:
 
 - **config.yaml** — `programs_file`, `servers_file`, `servers` (inline), `programs` (merged into programs file), `permission_sets`, `roles`, `state`
 - **programs.yaml** — Programs with `server` (env→server mapping), `app_db`, `sup_db`, `ignore_errors`, `enabled`. Supports list and map formats.
-- **servers.yaml** — Map of server name to connection config (`host`, `port`, `user`, `password`, `iam_auth`, `aws_region`, `aws_id`, `ssl`, `enabled`, `open_connections`, `idle_connections`, `max_conn_lifetime`)
+- **servers.yaml** — Map of server name to connection config (`host`, `port`, `user`, `password`, `iam_auth`, `aws_region`, `aws_id`, `ssl`, `enabled`, `ignore_errors`, `open_connections`, `idle_connections`, `max_conn_lifetime`)
 
 The `programs:` list in config.yaml merges into the programs file by name. All fields are merged: maps are unioned, slices are appended with dedup. Config-level `ignore_errors` overrides file-level if set. Config-level `enabled` overrides file-level if explicitly set.
 
@@ -197,7 +200,7 @@ Methods: `Set(v T)`, `Get() T` (zero value if unset), `IsSet() bool`. Used for `
 | `config` | `Config` | Top-level config (permission_sets, roles, file references, state config) |
 | `config` | `ProgramConfig` | Program with server env map, app_db, sup_db, ignore_errors, enabled |
 | `config` | `RoleConfig` | Role with per-scope permission set references |
-| `config` | `ServerConfig` | Connection details (host, port, IAM auth, SSL, enabled, pool settings) |
+| `config` | `ServerConfig` | Connection details and ignore rules for a MySQL server |
 | `config` | `ProgramDBs` | Database lists (AppDBs, SupDBs) for a program on a server |
 | `config` | `IgnoreErrorsConfig` | Error ignore rules (All bool, Errors []MySQLErrorCode) |
 | `config` | `MySQLErrorCode` | Named string type for MySQL error classification (e.g., "table_not_found") |
@@ -233,10 +236,11 @@ Methods: `Set(v T)`, `Get() T` (zero value if unset), `IsSet() bool`. Used for `
 | 1146 | `MySQLErrorTableNotFound` ("table_not_found") |
 | 1394 | `MySQLErrorRoleNotFound` ("role_not_found") |
 | 1396 | `MySQLErrorDuplicateRole` ("duplicate_role") |
+| 1305 | `MySQLErrorRoutineNotFound` ("routine_not_found"; also `procedure_not_found`) |
 
 Unrecognized MySQL errors → `"mysql_<code>"`. Non-MySQL errors → `"unknown"`.
 
-`IgnoreErrorsConfig` on `ProgramConfig` controls which errors to skip during apply:
+`IgnoreErrorsConfig` on `ProgramConfig` or `ServerConfig` controls which errors to skip during apply:
 
 ```yaml
 ignore_errors: true                          # ignore all errors
@@ -244,9 +248,9 @@ ignore_errors: "table_not_found"             # single error
 ignore_errors: ["table_not_found", "role_not_found"]  # list of errors
 ```
 
-`ShouldIgnore(errType MySQLErrorCode)` returns true if `All` is set or if `errType` matches an entry in `Errors`. The `"all"` string in the error list also sets `All=true`-equivalent behavior.
+`ShouldIgnore(errType MySQLErrorCode)` returns true if `All` is set or if `errType` matches an entry in `Errors`. The `"all"` string in the error list also sets `All=true`-equivalent behavior. `routine_not_found` and `procedure_not_found` are aliases for MySQL error 1305.
 
-During apply, each statement's role is mapped to a program via `BuildRoleProgramMap`, and the program's `IgnoreErrorsConfig` determines whether to skip or fail on MySQL errors. Ignored errors are logged with `~ IGNORED` prefix.
+During apply, the server's `IgnoreErrorsConfig` is checked first. If it does not match, each statement's role is mapped to a program via `BuildRoleProgramMap`, and the program's `IgnoreErrorsConfig` is checked. Ignored errors are logged with `~ IGNORED` prefix.
 
 ## Schema vs Table Semantics
 
@@ -406,7 +410,7 @@ Backed by the `migrate.Storage` interface with two implementations:
 - **v2 format** (current): UUIDv7 filenames (chronological sort), proper YAML with `version: v2`
 - **v1 format** (legacy): sequence-number filenames, also readable
 
-`HistoryEntry` fields: `Version`, `Timestamp`, `Environment`, `Server`, `Statements`, `Checksum`, `Error` (omitempty), `FailedSQL` (omitempty).
+`HistoryEntry` fields: `Version`, `Timestamp`, `Environment`, `Server`, `Statements`, `Checksum`, `Error` (omitempty), `FailedSQL` (omitempty), `Failures` (omitempty). Each failure records SQL, classified error code, and error message.
 
 Partial apply entries record error details and which SQL failed.
 

@@ -30,6 +30,7 @@ var applyCmd = &cobra.Command{
 func init() {
 	applyCmd.Flags().
 		StringP("environment", "e", "", "Environment name (defaults to the environment stored in the plan file)")
+	applyCmd.Flags().Bool("warn-on-error", false, "Continue after individual SQL failures and treat them as warnings")
 
 	rootCmd.AddCommand(applyCmd)
 }
@@ -44,6 +45,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 	configPath := viper.GetString("config")
 	envFlag, _ := cmd.Flags().GetString("environment")
+	warnOnError, _ := cmd.Flags().GetBool("warn-on-error")
 	planPath := args[0]
 
 	var (
@@ -106,7 +108,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 	cmd.SilenceUsage = true
 
-	applyErr := applyAllServers(ctx, plan, srvs, env, store, stateStore, cfg, progs)
+	summary, applyErr := applyAllServers(ctx, plan, srvs, env, store, stateStore, cfg, progs, warnOnError)
 
 	// Stop listening for SIGINT; restore default behavior.
 	signal.Stop(sigCh)
@@ -120,8 +122,35 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return errors.New("apply cancelled by interrupt")
 	}
 
+	if warnOnError && summary.FailedStatements > 0 {
+		if summary.allAttemptedStatementsFailed() {
+			return fmt.Errorf(
+				"all %d attempted statement(s) failed across %d server(s)",
+				summary.FailedStatements,
+				summary.AffectedServers,
+			)
+		}
+		fmt.Fprintf(
+			os.Stdout,
+			"Apply complete with warnings (%d statement(s) applied, %d failed).\n",
+			summary.AppliedStatements,
+			summary.FailedStatements,
+		)
+		return nil
+	}
+
 	fmt.Fprintln(os.Stdout, "Apply complete.")
 	return nil
+}
+
+type applySummary struct {
+	AppliedStatements int
+	FailedStatements  int
+	AffectedServers   int
+}
+
+func (s applySummary) allAttemptedStatementsFailed() bool {
+	return s.FailedStatements > 0 && s.AppliedStatements == 0
 }
 
 func applyServer(
@@ -133,20 +162,21 @@ func applyServer(
 	stateStore *migrate.StateStore,
 	cfg *config.Config,
 	progs config.ProgramsFile,
-) error {
+	warnOnError bool,
+) (applySummary, error) {
 	srvCfg, ok := srvs[sp.Server]
 	if !ok {
-		return fmt.Errorf("server %q not found in servers config", sp.Server)
+		return applySummary{}, fmt.Errorf("server %q not found in servers config", sp.Server)
 	}
 
 	if !srvCfg.Enabled.Get() {
 		fmt.Fprintf(os.Stdout, "# Server %q: disabled, skipping\n", sp.Server)
-		return nil
+		return applySummary{}, nil
 	}
 
 	if len(sp.Statements) == 0 {
 		fmt.Fprintf(os.Stdout, "# Server %q: no statements to apply\n", sp.Server)
-		return nil
+		return applySummary{}, nil
 	}
 
 	var db *sql.DB
@@ -154,7 +184,7 @@ func applyServer(
 		var err error
 		db, err = mysqlclient.Connect(ctx, srvCfg)
 		if err != nil {
-			return fmt.Errorf("connecting to server %q: %w", sp.Server, err)
+			return applySummary{}, fmt.Errorf("connecting to server %q: %w", sp.Server, err)
 		}
 	}
 
@@ -162,6 +192,7 @@ func applyServer(
 	programDBs := config.BuildProgramDBMap(sp.Server, env, progs)
 	roleProgMap := config.BuildRoleProgramMap(cfg.Roles, programDBs)
 	progIgnoreMap := buildProgIgnoreMap(progs)
+	serverIgnore := &srvCfg.IgnoreErrors
 
 	// Compute the full desired state for the state store update after apply.
 	// The plan file only contains state for changed roles/grants, so we rebuild
@@ -170,12 +201,134 @@ func applyServer(
 
 	fmt.Fprintf(os.Stdout, "# Applying %d statement(s) to server %q\n", len(sp.Statements), sp.Server)
 
-	var appliedStatements []string
-	var applyErr error
+	appliedStatements, failedSQL, failedStatements, applyErr := applyServerStatements(
+		ctx,
+		db,
+		sp,
+		roleProgMap,
+		progIgnoreMap,
+		serverIgnore,
+		warnOnError,
+	)
+
+	return finalizeServerApply(
+		ctx,
+		db,
+		sp,
+		env,
+		appliedStatements,
+		failedSQL,
+		failedStatements,
+		applyErr,
+		store,
+		stateStore,
+		desired,
+	)
+}
+
+// finalizeServerApply records the outcome of a statement run: fatal errors and
+// partial applies save stale state and history; a clean run completes the
+// server apply and updates the state store.
+func finalizeServerApply(
+	ctx context.Context,
+	db *sql.DB,
+	sp migrate.ServerPlan,
+	env string,
+	appliedStatements []string,
+	failedSQL string,
+	failedStatements []migrate.StatementFailure,
+	applyErr error,
+	store migrate.Storage,
+	stateStore *migrate.StateStore,
+	desired *reconcile.DesiredState,
+) (applySummary, error) {
+	if applyErr != nil {
+		return applySummary{}, savePartialApply(
+			ctx,
+			db,
+			sp,
+			env,
+			appliedStatements,
+			failedSQL,
+			failedStatements,
+			applyErr,
+			store,
+			stateStore,
+			true,
+		)
+	}
+
+	if len(failedStatements) > 0 {
+		applyErr = fmt.Errorf(
+			"server %q: %d statement(s) failed",
+			sp.Server,
+			len(failedStatements),
+		)
+		if err := savePartialApply(
+			ctx,
+			db,
+			sp,
+			env,
+			appliedStatements,
+			failedSQL,
+			failedStatements,
+			applyErr,
+			store,
+			stateStore,
+			false,
+		); err != nil {
+			return applySummary{}, err
+		}
+		fmt.Fprintf(
+			os.Stderr,
+			"# Server %q: partial apply recorded (%d statement(s) applied, %d failed)\n",
+			sp.Server,
+			len(appliedStatements),
+			len(failedStatements),
+		)
+		return applySummary{
+			AppliedStatements: len(appliedStatements),
+			FailedStatements:  len(failedStatements),
+			AffectedServers:   1,
+		}, nil
+	}
+
+	_ = db.Close()
+
+	if err := completeServerApply(ctx, sp, env, appliedStatements, store, stateStore, desired); err != nil {
+		return applySummary{}, err
+	}
+
+	fmt.Fprintf(os.Stdout, "# Server %q: migration complete\n", sp.Server)
+	return applySummary{
+		AppliedStatements: len(appliedStatements),
+	}, nil
+}
+
+// applyServerStatements executes each plan statement, recording applied and
+// failed statements. It stops on the first pending interrupt or fatal error
+// and returns the collected results plus the error to abort with.
+func applyServerStatements(
+	ctx context.Context,
+	db *sql.DB,
+	sp migrate.ServerPlan,
+	roleProgMap map[string]string,
+	progIgnoreMap map[string]*config.IgnoreErrorsConfig,
+	serverIgnore *config.IgnoreErrorsConfig,
+	warnOnError bool,
+) ([]string, string, []migrate.StatementFailure, error) {
+	var (
+		applied   []string
+		failedSQL string
+		failures  []migrate.StatementFailure
+		fatalErr  error
+	)
+
 	for _, stmt := range sp.Statements {
 		// Check for interrupt before executing the next statement.
 		if interrupted.Load() == 1 {
-			applyErr = fmt.Errorf("server %q: apply interrupted by signal", sp.Server)
+			fatalErr = fmt.Errorf("server %q: apply interrupted by signal", sp.Server)
+			failedSQL = stmt.SQL
 			fmt.Fprintf(os.Stderr, "  ! INTERRUPTED\n")
 			break
 		}
@@ -187,41 +340,64 @@ func applyServer(
 		if err := executeStatement(ctx, db, stmt.SQL); err != nil {
 			errType := config.ClassifyError(err)
 			progName := roleProgMap[stmt.Role]
-			ignore := progIgnoreMap[progName]
 
-			if ignore.ShouldIgnore(errType) {
+			ignoredBy, ignored := ignoredErrorBy(
+				serverIgnore,
+				progIgnoreMap[progName],
+				errType,
+				sp.Server,
+				progName,
+			)
+			if ignored {
 				fmt.Fprintf(
 					os.Stderr,
-					"  ~ IGNORED [%s]: %s (program %q ignores %q)\n",
+					"  ~ IGNORED [%s]: %s (%s ignores %q)\n",
 					errType,
 					stmt.SQL,
-					progName,
+					ignoredBy,
 					errType,
 				)
 				continue
 			}
 
-			applyErr = fmt.Errorf("executing on %q: %q: %w", sp.Server, stmt.SQL, err)
+			failedSQL = stmt.SQL
+			failures = append(failures, migrate.StatementFailure{
+				SQL:       stmt.SQL,
+				ErrorCode: string(errType),
+				Error:     err.Error(),
+			})
+			if warnOnError {
+				fmt.Fprintf(os.Stderr, "  ! WARNING [%s]: %s: %s\n", errType, stmt.SQL, err)
+				continue
+			}
+
+			fatalErr = fmt.Errorf("executing on %q: %q: %w", sp.Server, stmt.SQL, err)
 			fmt.Fprintf(os.Stderr, "  ! ERROR [%s]: %s\n", errType, stmt.SQL)
 			break
 		}
 
 		fmt.Fprintf(os.Stdout, "  + %s\n", stmt.SQL)
-		appliedStatements = append(appliedStatements, stmt.SQL)
+		applied = append(applied, stmt.SQL)
 	}
 
-	if applyErr != nil {
-		return savePartialApply(ctx, db, sp, env, appliedStatements, applyErr, store, stateStore)
+	return applied, failedSQL, failures, fatalErr
+}
+
+// ignoredErrorBy reports whether the error type is ignored by the server's or
+// the statement's program ignore rules, and returns which one ignores it.
+func ignoredErrorBy(
+	serverIgnore *config.IgnoreErrorsConfig,
+	progIgnore *config.IgnoreErrorsConfig,
+	errType config.MySQLErrorCode,
+	serverName, progName string,
+) (string, bool) {
+	if serverIgnore.ShouldIgnore(errType) {
+		return fmt.Sprintf("server %q", serverName), true
 	}
-
-	_ = db.Close()
-
-	if err := completeServerApply(ctx, sp, env, appliedStatements, store, stateStore, desired); err != nil {
-		return err
+	if progIgnore.ShouldIgnore(errType) {
+		return fmt.Sprintf("program %q", progName), true
 	}
-
-	fmt.Fprintf(os.Stdout, "# Server %q: migration complete\n", sp.Server)
-	return nil
+	return "", false
 }
 
 // completeServerApply writes the history entry and updates the state store after a successful apply.
@@ -287,7 +463,7 @@ func buildProgIgnoreMap(progs config.ProgramsFile) map[string]*config.IgnoreErro
 }
 
 // savePartialApply marks the state as stale, records a partial history entry,
-// closes the database connection, and returns the original error.
+// closes the database connection, and optionally returns the original error.
 // The stale marker changes the state checksum, forcing a re-plan before the next apply.
 func savePartialApply(
 	ctx context.Context,
@@ -295,9 +471,12 @@ func savePartialApply(
 	sp migrate.ServerPlan,
 	env string,
 	appliedStatements []string,
+	failedSQL string,
+	failedStatements []migrate.StatementFailure,
 	applyErr error,
 	store migrate.Storage,
 	stateStore *migrate.StateStore,
+	returnApplyErr bool,
 ) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	partialChecksum := migrate.ComputeChecksumFromSQL(appliedStatements)
@@ -316,12 +495,6 @@ func savePartialApply(
 		)
 	}
 
-	// Determine the failed/interrupted SQL for the history entry.
-	failedSQL := ""
-	if idx := len(appliedStatements); idx < len(sp.Statements) {
-		failedSQL = sp.Statements[idx].SQL
-	}
-
 	histErr := migrate.WriteHistory(ctx, store, migrate.HistoryEntry{
 		Timestamp:   now,
 		Environment: env,
@@ -330,6 +503,7 @@ func savePartialApply(
 		Checksum:    partialChecksum,
 		Error:       applyErr.Error(),
 		FailedSQL:   failedSQL,
+		Failures:    failedStatements,
 	})
 	if histErr != nil {
 		return fmt.Errorf(
@@ -347,7 +521,10 @@ func savePartialApply(
 		len(appliedStatements),
 		len(sp.Statements),
 	)
-	return applyErr
+	if returnApplyErr {
+		return applyErr
+	}
+	return nil
 }
 
 // setupSignalHandler installs a SIGINT handler for graceful cancellation during apply.
@@ -376,7 +553,7 @@ func setupSignalHandler() chan os.Signal {
 }
 
 // applyAllServers iterates over the plan's server entries, validates each,
-// and applies statements. Returns the first error encountered.
+// and applies statements. Fatal errors stop iteration.
 func applyAllServers(
 	ctx context.Context,
 	plan *migrate.PlanFile,
@@ -386,17 +563,23 @@ func applyAllServers(
 	stateStore *migrate.StateStore,
 	cfg *config.Config,
 	progs config.ProgramsFile,
-) error {
+	warnOnError bool,
+) (applySummary, error) {
+	var summary applySummary
 	for _, sp := range plan.Servers {
 		if err := sp.Validate(); err != nil {
-			return fmt.Errorf("validating server plan for %q: %w", sp.Server, err)
+			return summary, fmt.Errorf("validating server plan for %q: %w", sp.Server, err)
 		}
 
-		if err := applyServer(ctx, sp, srvs, env, store, stateStore, cfg, progs); err != nil {
-			return err
+		result, err := applyServer(ctx, sp, srvs, env, store, stateStore, cfg, progs, warnOnError)
+		if err != nil {
+			return summary, err
 		}
+		summary.AppliedStatements += result.AppliedStatements
+		summary.FailedStatements += result.FailedStatements
+		summary.AffectedServers += result.AffectedServers
 	}
-	return nil
+	return summary, nil
 }
 
 // validatePlanState checks that the state store checksum for each server

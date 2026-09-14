@@ -157,14 +157,22 @@ func ComputeChecksumFromSQL(sqls []string) string {
 
 // HistoryEntry represents a single applied migration in history.
 type HistoryEntry struct {
-	Version     string   `json:"version"              yaml:"version"`
-	Timestamp   string   `json:"timestamp"            yaml:"timestamp"`
-	Environment string   `json:"environment"          yaml:"environment"`
-	Server      string   `json:"server"               yaml:"server"`
-	Statements  []string `json:"statements"           yaml:"statements"`
-	Checksum    string   `json:"checksum"             yaml:"checksum"`
-	Error       string   `json:"error,omitempty"      yaml:"error,omitempty"`
-	FailedSQL   string   `json:"failed_sql,omitempty" yaml:"failed_sql,omitempty"`
+	Version     string             `json:"version"              yaml:"version"`
+	Timestamp   string             `json:"timestamp"            yaml:"timestamp"`
+	Environment string             `json:"environment"          yaml:"environment"`
+	Server      string             `json:"server"               yaml:"server"`
+	Statements  []string           `json:"statements"           yaml:"statements"`
+	Checksum    string             `json:"checksum"             yaml:"checksum"`
+	Error       string             `json:"error,omitempty"      yaml:"error,omitempty"`
+	FailedSQL   string             `json:"failed_sql,omitempty" yaml:"failed_sql,omitempty"`
+	Failures    []StatementFailure `json:"failures,omitempty"   yaml:"failures,omitempty"`
+}
+
+// StatementFailure records a SQL statement that failed during apply.
+type StatementFailure struct {
+	SQL       string `json:"sql"        yaml:"sql"`
+	ErrorCode string `json:"error_code" yaml:"error_code"`
+	Error     string `json:"error"      yaml:"error"`
 }
 
 func (e *HistoryEntry) ValidateChecksum() bool {

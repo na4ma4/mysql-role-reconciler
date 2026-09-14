@@ -74,6 +74,23 @@ func runHistory(cmd *cobra.Command, _ []string) error {
 		for _, s := range entry.Statements {
 			fmt.Fprintf(os.Stdout, "    %s\n", s)
 		}
+		if len(entry.Failures) > 0 {
+			fmt.Fprintf(os.Stdout, "  Failures (%d):\n", len(entry.Failures))
+			for _, failure := range entry.Failures {
+				fmt.Fprintf(
+					os.Stdout,
+					"    [%s] %s: %s\n",
+					failure.ErrorCode,
+					failure.SQL,
+					failure.Error,
+				)
+			}
+		} else if entry.Error != "" {
+			fmt.Fprintf(os.Stdout, "  Error:       %s\n", entry.Error)
+			if entry.FailedSQL != "" {
+				fmt.Fprintf(os.Stdout, "  Failed SQL:  %s\n", entry.FailedSQL)
+			}
+		}
 		fmt.Fprintln(os.Stdout)
 	}
 

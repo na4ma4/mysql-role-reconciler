@@ -148,7 +148,7 @@ type ProgramConfig struct {
 	Enabled      ptrVal[bool]       `yaml:"enabled"`
 }
 
-// IgnoreErrorsConfig specifies which MySQL errors to ignore during apply for a program.
+// IgnoreErrorsConfig specifies which MySQL errors to ignore during apply for a server or program.
 // It can be `true` (ignore all errors) or a list of named error types such as
 // "table_not_found", "role_not_found", etc.
 type IgnoreErrorsConfig struct {
@@ -165,11 +165,20 @@ func (c *IgnoreErrorsConfig) ShouldIgnore(errType MySQLErrorCode) bool {
 		return true
 	}
 	for _, e := range c.Errors {
-		if e == errType || e == "all" {
+		if errorTypesMatch(e, errType) || e == "all" {
 			return true
 		}
 	}
 	return false
+}
+
+func errorTypesMatch(configured, actual MySQLErrorCode) bool {
+	if configured == actual {
+		return true
+	}
+
+	return (configured == MySQLErrorRoutineNotFound || configured == MySQLErrorProcedureNotFound) &&
+		(actual == MySQLErrorRoutineNotFound || actual == MySQLErrorProcedureNotFound)
 }
 
 // UnmarshalYAML allows ignore_errors to be true, a single string, or a list of strings.
@@ -305,6 +314,7 @@ func decodeRoleScope(values map[string]yaml.Node, scope string) (map[string][]st
 // ServerConfig represents connection details for a MySQL server.
 type ServerConfig struct {
 	Enabled         ptrVal[bool]          `yaml:"enabled"`
+	IgnoreErrors    IgnoreErrorsConfig    `yaml:"ignore_errors"`
 	Host            string                `yaml:"host"`
 	Port            int                   `yaml:"port"`
 	User            string                `yaml:"user"`
