@@ -378,6 +378,14 @@ func applyServerStatements(
 
 		fmt.Fprintf(os.Stdout, "  + %s\n", stmt.SQL)
 		applied = append(applied, stmt.SQL)
+
+		// Check for interrupt after executing a statement so the partial-save
+		// path is entered even when the signal arrives during the last statement.
+		if interrupted.Load() == 1 {
+			fatalErr = fmt.Errorf("server %q: apply interrupted by signal", sp.Server)
+			fmt.Fprintf(os.Stderr, "  ! INTERRUPTED\n")
+			break
+		}
 	}
 
 	return applied, failedSQL, failures, fatalErr
