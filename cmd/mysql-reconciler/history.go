@@ -60,42 +60,46 @@ func runHistory(cmd *cobra.Command, _ []string) error {
 	}
 
 	for i, entry := range entries {
-		fmt.Fprintf(os.Stdout, "Entry #%d\n", i+1)
-		if entry.Version == "" {
-			fmt.Fprintf(os.Stdout, "  Version:    (missing version, unable to parse entry)\n")
-		} else {
-			fmt.Fprintf(os.Stdout, "  Version:    %s\n", entry.Version)
-		}
-		fmt.Fprintf(os.Stdout, "  Timestamp:   %s\n", entry.Timestamp)
-		fmt.Fprintf(os.Stdout, "  Environment: %s\n", entry.Environment)
-		fmt.Fprintf(os.Stdout, "  Server:      %s\n", entry.Server)
-		fmt.Fprintf(os.Stdout, "  Checksum:    %s (%s)\n", entry.Checksum, isChecksumValid(entry))
-		fmt.Fprintf(os.Stdout, "  Statements (%d):\n", len(entry.Statements))
-		for _, s := range entry.Statements {
-			fmt.Fprintf(os.Stdout, "    %s\n", s)
-		}
-		if len(entry.Failures) > 0 {
-			fmt.Fprintf(os.Stdout, "  Failures (%d):\n", len(entry.Failures))
-			for _, failure := range entry.Failures {
-				fmt.Fprintf(
-					os.Stdout,
-					"    [%s] %s: %s\n",
-					failure.ErrorCode,
-					failure.SQL,
-					failure.Error,
-				)
-			}
-		}
-		if entry.Error != "" {
-			fmt.Fprintf(os.Stdout, "  Error:       %s\n", entry.Error)
-			if entry.FailedSQL != "" {
-				fmt.Fprintf(os.Stdout, "  Failed SQL:  %s\n", entry.FailedSQL)
-			}
-		}
-		fmt.Fprintln(os.Stdout)
+		printHistoryEntry(i+1, entry)
 	}
 
 	return nil
+}
+
+func printHistoryEntry(number int, entry migrate.HistoryEntry) {
+	fmt.Fprintf(os.Stdout, "Entry #%d\n", number)
+	if entry.Version == "" {
+		fmt.Fprintf(os.Stdout, "  Version:    (missing version, unable to parse entry)\n")
+	} else {
+		fmt.Fprintf(os.Stdout, "  Version:    %s\n", entry.Version)
+	}
+	fmt.Fprintf(os.Stdout, "  Timestamp:   %s\n", entry.Timestamp)
+	fmt.Fprintf(os.Stdout, "  Environment: %s\n", entry.Environment)
+	fmt.Fprintf(os.Stdout, "  Server:      %s\n", entry.Server)
+	fmt.Fprintf(os.Stdout, "  Checksum:    %s (%s)\n", entry.Checksum, isChecksumValid(entry))
+	fmt.Fprintf(os.Stdout, "  Statements (%d):\n", len(entry.Statements))
+	for _, s := range entry.Statements {
+		fmt.Fprintf(os.Stdout, "    %s\n", s)
+	}
+	if len(entry.Failures) > 0 {
+		fmt.Fprintf(os.Stdout, "  Failures (%d):\n", len(entry.Failures))
+		for _, failure := range entry.Failures {
+			fmt.Fprintf(
+				os.Stdout,
+				"    [%s] %s: %s\n",
+				failure.ErrorCode,
+				failure.SQL,
+				failure.Error,
+			)
+		}
+	}
+	if entry.Error != "" {
+		fmt.Fprintf(os.Stdout, "  Error:       %s\n", entry.Error)
+		if entry.FailedSQL != "" {
+			fmt.Fprintf(os.Stdout, "  Failed SQL:  %s\n", entry.FailedSQL)
+		}
+	}
+	fmt.Fprintln(os.Stdout)
 }
 
 func isChecksumValid(entry migrate.HistoryEntry) string {
